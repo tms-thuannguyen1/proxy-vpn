@@ -75,7 +75,7 @@ Nếu Terminal in ra **địa chỉ IP của server khách hàng**, kết nối 
 
 Chọn **1 trong 2 cách** bên dưới tùy theo nhu cầu.
 
-### Cách 1: Chỉ dùng cho Trình duyệt (Khuyên dùng)
+### Cách 1: Chỉ dùng cho Trình duyệt
 
 Không ảnh hưởng đến mạng chung của máy (Zoom, Meet, YouTube, Slack vẫn dùng mạng cá nhân bình thường).
 
@@ -123,7 +123,7 @@ docker compose stop
 docker compose start
 ```
 
-Chờ khoảng **3–5 giây** là proxy `1080` sẽ hoạt động trở lại.
+Chờ khoảng **10–15 giây** là proxy `1080` sẽ hoạt động trở lại (container kết nối lại IPsec + L2TP từ đầu).
 
 ## 6. Phím tắt Terminal (zsh)
 
@@ -187,9 +187,22 @@ docker logs -f l2tp-proxy
 vpn-logs
 ```
 
+**Tra lỗi theo log:** khi kết nối thất bại, log in dòng `ERROR: ...` kèm các dòng ngay phía trên cho biết nguyên nhân:
+
+| Dòng log | Nguyên nhân | Cách xử lý |
+| --- | --- | --- |
+| `peer not responding` / `giving up after 5 retransmits` | Không tới được server IPsec | Kiểm tra `VPN_SERVER`; mạng đang dùng có chặn UDP 500/4500 không |
+| `NO_PROPOSAL_CHOSEN` | Server không hỗ trợ bộ mã hóa đang cấu hình | Gửi log cho người quản trị để bổ sung `ike=`/`esp=` trong `entrypoint.sh` |
+| `INVALID_HASH_INFORMATION` / `AUTHENTICATION_FAILED` | Sai `VPN_PSK` | Kiểm tra lại PSK |
+| `Connecting to host ... port 1701` nhưng không có `Connection established` | L2TP không được server trả lời | Kiểm tra IPsec phía trên đã `established successfully` chưa |
+| `You are already logged in - access denied` | Tài khoản đang có phiên khác trên server | Chờ 1–2 phút (phiên cũ hết hạn), hoặc tắt máy khác đang dùng cùng tài khoản |
+| `CHAP authentication failed` (không kèm dòng trên) | Sai `VPN_USER` / `VPN_PASSWORD` | Kiểm tra lại tài khoản |
+
+Container tự thử lại sau mỗi lần lỗi (`restart: unless-stopped`). Nếu lỗi do cấu hình, dừng hẳn bằng `docker compose stop`, sửa `.env`, rồi `docker compose up -d`.
+
 **Lỗi `curl: (97) connection to proxy closed`:**
 
-Kiểm tra xem `VPN_SERVER`, `VPN_PSK`, `VPN_USER`, `VPN_PASSWORD` trong `.env` có bị thừa khoảng trắng hoặc sai ký tự không. Sau khi sửa, chạy lại:
+Proxy chưa sẵn sàng (VPN chưa kết nối xong hoặc đang lỗi). Xem log theo bảng trên; kiểm tra `VPN_SERVER`, `VPN_PSK`, `VPN_USER`, `VPN_PASSWORD` trong `.env` có bị thừa khoảng trắng hoặc sai ký tự không. Sau khi sửa, chạy lại:
 
 ```bash
 docker compose up -d --force-recreate
@@ -204,6 +217,10 @@ networksetup -setsocksfirewallproxystate Wi-Fi off
 # hoặc (tắt trên mọi network service)
 vpn-off
 ```
+
+**Bật lại mất 1–2 phút mới vào được mạng (log có `You are already logged in - access denied`):**
+
+Server VPN vẫn giữ phiên cũ do lần trước container bị tắt ngang (Quit Docker Desktop, Mac tắt nguồn/hết pin...). Khi dừng bằng `docker compose stop` / `vpn-off`, container tự ngắt phiên gọn gàng nên không gặp lỗi này. Nếu đã gặp: chờ 1–2 phút, container tự khởi động lại (`restart: unless-stopped`) và kết nối khi server hết hạn phiên cũ.
 
 **`vpn-on` báo `Cannot detect the active network service`:**
 

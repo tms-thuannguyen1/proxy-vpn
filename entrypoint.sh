@@ -1,6 +1,34 @@
 #!/bin/bash
 set -e
 
+# Tear down the VPN session so the server releases it right away. Without this,
+# `docker compose stop` kills everything abruptly, the server keeps the stale
+# session, and the next start is rejected until that session times out.
+teardown() {
+    echo "Disconnecting VPN session..."
+    [ -n "$PROXY_PID" ] && kill -TERM "$PROXY_PID" 2>/dev/null || true
+    # pppd sends LCP Terminate-Request to the server when it gets SIGTERM
+    pkill -TERM pppd 2>/dev/null || true
+    for _ in 1 2 3; do pgrep pppd >/dev/null || break; sleep 1; done
+    echo "d myvpn" > /var/run/xl2tpd/l2tp-control 2>/dev/null || true
+    sleep 1
+    ipsec down myvpn >/dev/null 2>&1 || true
+    ipsec stop >/dev/null 2>&1 || true
+}
+trap 'teardown; exit 0' TERM INT
+
+# Reports the failure, tears down and exits so the restart policy retries.
+fail() {
+    echo "ERROR: $1" >&2
+    teardown
+    exit 1
+}
+
+# The writable layer survives `restart: unless-stopped`, so pidfiles left by
+# the previous run make xl2tpd/charon believe they are already running.
+rm -f /var/run/xl2tpd.pid /var/run/charon.pid /var/run/starter.charon.pid \
+      /var/run/ppp*.pid /var/run/xl2tpd/l2tp-control
+
 # 1. Cấu hình IPsec
 cat <<EOF > /etc/ipsec.conf
 config setup
@@ -9,7 +37,8 @@ config setup
 conn myvpn
   keyexchange=ikev1
   authby=secret
-  auto=start
+  auto=add
+  keyingtries=1
   type=transport
   left=%defaultroute
   leftprotoport=17/1701
@@ -43,6 +72,8 @@ require-mschap-v2
 noccp
 noauth
 idle 0
+# Send pppd messages (e.g. authentication failures) to the container log
+logfd 2
 name "${VPN_USER}"
 password "${VPN_PASSWORD}"
 EOF
@@ -50,11 +81,12 @@ EOF
 # 3. Khởi động IPsec
 ipsec start
 sleep 2
-ipsec up myvpn
+# `ipsec up` exits 0 even when negotiation fails, so check the SA explicitly
+ipsec up myvpn || true
+ipsec status myvpn | grep -q INSTALLED || fail "IPsec negotiation failed, see the lines above: 'peer not responding' = wrong VPN_SERVER or UDP 500/4500 blocked; 'NO_PROPOSAL_CHOSEN' = cipher mismatch; 'INVALID_HASH_INFORMATION' or 'AUTHENTICATION_FAILED' = wrong VPN_PSK"
 
 # 4. Khởi động xl2tpd
 mkdir -p /var/run/xl2tpd
-rm -f /var/run/xl2tpd/l2tp-control
 xl2tpd -D &
 sleep 2
 echo "c myvpn" > /var/run/xl2tpd/l2tp-control
@@ -67,6 +99,9 @@ for i in {1..30}; do
     fi
     sleep 1
 done
+if ! ip addr show ppp0 2>/dev/null | grep -q "inet"; then
+    fail "ppp0 did not get an IP within 30s: no 'Connection established' above means L2TP got no reply; otherwise check VPN_USER/VPN_PASSWORD or wait for a stale session on the server to expire"
+fi
 
 # 5. Routing qua ppp0
 ORIG_GW=$(ip route show default | awk '{print $3}')
@@ -81,4 +116,8 @@ echo "nameserver 8.8.8.8" >> /etc/resolv.conf
 
 # 6. Khởi chạy Microsocks Proxy
 echo "Khởi chạy Microsocks Proxy tại cổng 1080..."
-exec microsocks -i 0.0.0.0 -p 1080
+# Run in the background (not exec) so this shell stays PID 1 and can trap SIGTERM
+microsocks -i 0.0.0.0 -p 1080 &
+PROXY_PID=$!
+wait "$PROXY_PID" || true
+teardown
