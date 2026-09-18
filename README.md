@@ -193,6 +193,7 @@ vpn-logs
 | --- | --- | --- |
 | `peer not responding` / `giving up after 5 retransmits` | Không tới được server IPsec | Kiểm tra `VPN_SERVER`; mạng đang dùng có chặn UDP 500/4500 không |
 | `NO_PROPOSAL_CHOSEN` | Server không hỗ trợ bộ mã hóa đang cấu hình | Gửi log cho người quản trị để bổ sung `ike=`/`esp=` trong `entrypoint.sh` |
+| `IDir '...' does not match to '...'` | Server nằm sau NAT, tự nhận bằng IP nội bộ | Đã xử lý sẵn (`rightid=%any`); nếu vẫn gặp, chạy lại `git pull` và `docker compose up -d --build` |
 | `INVALID_HASH_INFORMATION` / `AUTHENTICATION_FAILED` | Sai `VPN_PSK` | Kiểm tra lại PSK |
 | `Connecting to host ... port 1701` nhưng không có `Connection established` | L2TP không được server trả lời | Kiểm tra IPsec phía trên đã `established successfully` chưa |
 | `You are already logged in - access denied` | Tài khoản đang có phiên khác trên server | Chờ 1–2 phút (phiên cũ hết hạn), hoặc tắt máy khác đang dùng cùng tài khoản |

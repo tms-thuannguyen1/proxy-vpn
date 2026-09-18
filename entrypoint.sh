@@ -43,6 +43,11 @@ conn myvpn
   left=%defaultroute
   leftprotoport=17/1701
   right=${VPN_SERVER}
+  # Servers behind NAT identify with their private IP (e.g. 192.168.100.1),
+  # not VPN_SERVER; accept any ID like native clients do (PSK still authenticates)
+  rightid=%any
+  # A server behind NAT identifies itself by its private IP, not VPN_SERVER
+  rightid=${VPN_SERVER_ID:-%any}
   rightprotoport=17/1701
   ike=aes256-sha256-modp2048,aes128-sha1-modp1024,3des-sha1-modp1024!
   esp=aes256-sha256,aes128-sha1,3des-sha1!
@@ -83,7 +88,7 @@ ipsec start
 sleep 2
 # `ipsec up` exits 0 even when negotiation fails, so check the SA explicitly
 ipsec up myvpn || true
-ipsec status myvpn | grep -q INSTALLED || fail "IPsec negotiation failed, see the lines above: 'peer not responding' = wrong VPN_SERVER or UDP 500/4500 blocked; 'NO_PROPOSAL_CHOSEN' = cipher mismatch; 'INVALID_HASH_INFORMATION' or 'AUTHENTICATION_FAILED' = wrong VPN_PSK"
+ipsec status myvpn | grep -q INSTALLED || fail "IPsec negotiation failed, see the lines above: 'peer not responding' = wrong VPN_SERVER or UDP 500/4500 blocked; 'NO_PROPOSAL_CHOSEN' = cipher mismatch; 'INVALID_HASH_INFORMATION' or 'AUTHENTICATION_FAILED' = wrong VPN_PSK; 'IDir ... does not match' = set VPN_SERVER_ID to the ID the server sends"
 
 # 4. Khởi động xl2tpd
 mkdir -p /var/run/xl2tpd
