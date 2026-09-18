@@ -1,0 +1,9 @@
+services:
+  vpn-proxy:
+    build: .
+    container_name: l2tp-proxy
+    privileged: true
+    env_file: .env
+    ports:
+      - "127.0.0.1:1080:1080"
+    restart: unless-stopped
