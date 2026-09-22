@@ -128,7 +128,7 @@ VPN is ON for the whole Mac. Exit IP: xxx.xxx.xxx.xxx
 - `vpn-on` hỏi **mật khẩu macOS** vì phải đổi route, DNS và IPv6 của hệ thống.
 - `vpn-on` chỉ báo thành công khi đã kiểm tra IP ra Internet của máy **đúng bằng IP của VPN**. Nếu VPN không lên, nó **không** chuyển máy vào tunnel, nên máy không bị mất mạng.
 - Mạng LAN tại chỗ (router, máy in) vẫn đi thẳng, không qua VPN.
-- Khi bật toàn máy, **mọi** traffic (kể cả việc riêng) đi qua hạ tầng của khách hàng. Cần dùng lâu thì cân nhắc `vpn-on --browser` — xem [SECURITY.md](SECURITY.md).
+- Trong lúc bật, **mọi** traffic của máy đi qua hạ tầng khách hàng (đúng mục đích khi đang làm dự án). Tắt bằng `vpn-off` khi xong việc — xem [SECURITY.md](SECURITY.md).
 - IPv6 tạm tắt trong lúc bật (VPN chỉ mang IPv4) để không có traffic đi vòng qua mạng thật; `vpn-off` bật lại.
 
 > [!IMPORTANT]

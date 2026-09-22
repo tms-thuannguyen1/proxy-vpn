@@ -8,7 +8,7 @@ Mọi kết luận dưới đây đều lấy từ kiểm tra thực tế trên 
 
 - **Mạng công ty không bị lộ ra phía khách hàng.** Không có đường nào từ VPN khách hàng đi ngược vào LAN công ty: macOS không bật chuyển tiếp gói tin, container không có route tới LAN sau khi VPN lên, và chiều vào từ VPN đã bị chặn ở tường lửa container.
 - **Đã tìm và vá 4 điểm yếu** (chi tiết bên dưới), trong đó nghiêm trọng nhất là proxy SOCKS mở không mật khẩu về phía mạng khách hàng.
-- **Rủi ro còn lại chủ yếu là về quyền riêng tư**, không phải lỗ hổng kỹ thuật: khi bật chế độ toàn máy, mọi traffic của bạn đi qua hạ tầng của khách hàng.
+- **Chế độ toàn máy là lựa chọn có chủ đích**: kết nối này phục vụ làm dự án cho khách hàng, nên việc traffic đi qua hạ tầng của họ là đúng mục đích. Điều cần nhớ là **tắt bằng `vpn-off` khi không làm việc**, để việc riêng không đi qua đó.
 
 ## Các điểm yếu đã tìm thấy và đã vá
 
@@ -59,11 +59,15 @@ security_opt: [no-new-privileges:true]
 
 ## Rủi ro còn lại (cần biết, không vá được bằng code)
 
-### a) Khách hàng nhìn thấy toàn bộ traffic khi bật chế độ toàn máy (Quan trọng nhất)
+### a) Trong lúc bật, khách hàng thấy được traffic của máy
 
-`vpn-on` đẩy **mọi thứ** qua hạ tầng khách hàng: cả việc riêng, cả dự án của khách hàng khác, Slack nội bộ công ty, ngân hàng... Nội dung HTTPS vẫn được mã hoá, nhưng phía VPN thấy được: bạn truy cập tên miền nào, lúc nào, bao nhiêu dữ liệu, và toàn bộ truy vấn DNS.
+Đây là hệ quả tất yếu của việc đẩy toàn bộ máy qua VPN, và là **điều mong muốn** trong bối cảnh dùng để làm dự án cho khách hàng. Ghi lại để mọi người trong nhóm biết rõ phạm vi:
 
-**Khuyến nghị:** ngày thường dùng `vpn-on --browser` kèm port forwarding cho DB (chỉ traffic cần thiết đi qua khách hàng). Chỉ bật `vpn-on` toàn máy khi thật sự cần, và `vpn-off` ngay khi xong.
+- Phía VPN thấy: bạn truy cập tên miền nào, lúc nào, lưu lượng bao nhiêu, và toàn bộ truy vấn DNS.
+- Phía VPN **không** đọc được nội dung của các kết nối HTTPS/TLS.
+- Trong lúc bật, traffic không liên quan tới khách hàng (Slack nội bộ công ty, dự án của khách hàng khác, việc riêng) cũng đi qua đó.
+
+**Cách làm đúng:** bật `vpn-on` khi bắt đầu làm việc với khách hàng, `vpn-off` khi xong. Không để bật qua đêm hay lúc dùng máy cho việc riêng. Nếu cần vừa làm dự án vừa giữ phần còn lại trong mạng công ty, dùng `vpn-on --browser` kèm port forwarding cho DB.
 
 ### b) Đường hầm VPN dùng thuật toán yếu
 
@@ -101,7 +105,7 @@ Server khách hàng chọn `3DES_CBC/HMAC_SHA1/MODP_1024` cho cả IKE lẫn ESP
 
 ## Khuyến nghị vận hành
 
-1. Ngày thường dùng `vpn-on --browser` + port forwarding; chỉ bật toàn máy khi cần, và tắt ngay khi xong.
+1. Bật `vpn-on` khi bắt đầu làm việc với khách hàng, `vpn-off` khi xong. Tránh để bật lúc dùng máy cho việc riêng.
 2. Mỗi người **một tài khoản VPN riêng**. Dùng chung tài khoản vừa gây lỗi `You are already logged in`, vừa làm nhật ký phía khách hàng không phân biệt được ai.
 3. Không commit `.env`, `data/`. Khi nghỉ dự án, đề nghị khách hàng thu hồi tài khoản VPN.
 4. Định kỳ chạy `docker compose build --pull` để lấy bản vá bảo mật của Alpine; nâng phiên bản ghim trong `Dockerfile` khi có bản mới.
