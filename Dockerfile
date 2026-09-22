@@ -1,4 +1,5 @@
-FROM alpine:latest
+# Pinned: `latest` would silently change the base image under us
+FROM alpine:3.24
 
 RUN apk add --no-cache \
     strongswan \
@@ -14,7 +15,8 @@ RUN apk add --no-cache \
     git
 
 # Tải và build microsocks trực tiếp từ source (mất khoảng 3 giây)
-RUN git clone https://github.com/rofl0r/microsocks.git /tmp/microsocks && \
+# Pinned to a release tag instead of whatever master holds at build time
+RUN git clone --depth 1 --branch v1.0.5 https://github.com/rofl0r/microsocks.git /tmp/microsocks && \
     cd /tmp/microsocks && \
     make && \
     cp microsocks /usr/local/bin/ && \

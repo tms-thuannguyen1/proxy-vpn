@@ -2,7 +2,16 @@ services:
   vpn-proxy:
     build: .
     container_name: l2tp-proxy
-    privileged: true
+    # Least privilege instead of `privileged: true`: NET_ADMIN for IPsec/ppp/
+    # WireGuard interfaces and routes, /dev/ppp for the L2TP link
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/ppp
+    sysctls:
+      - net.ipv4.ip_forward=1
+    security_opt:
+      - no-new-privileges:true
     env_file: .env
     ports:
       - "127.0.0.1:1080:1080"

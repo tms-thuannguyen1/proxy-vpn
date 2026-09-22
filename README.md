@@ -17,6 +17,8 @@ Toàn bộ máy Mac ──WireGuard──▶ 127.0.0.1:51820/udp ──▶ [Dock
 5. [Tùy chỉnh](#5-tùy-chỉnh)
 6. [Xử lý sự cố thường gặp](#6-xử-lý-sự-cố-thường-gặp)
 
+Về bảo mật (traffic nào khách hàng nhìn thấy, quyền của container, rủi ro còn lại): xem [SECURITY.md](SECURITY.md).
+
 ## Cấu trúc dự án
 
 | File                 | Vai trò                                                              |
@@ -27,6 +29,7 @@ Toàn bộ máy Mac ──WireGuard──▶ 127.0.0.1:51820/udp ──▶ [Dock
 | `.env.example`       | Mẫu tài khoản VPN + port forward — copy thành `.env` (git bỏ qua `.env`) |
 | `vpn.zsh`            | Phím tắt Terminal: `vpn-on`, `vpn-off`, `vpn-status`, `vpn-logs`, `vpn-exec` |
 | `data/`              | Sinh tự động: khóa WireGuard + cấu hình cho Mac (git bỏ qua)         |
+| `SECURITY.md`        | Đánh giá bảo mật: đã vá gì, còn rủi ro gì, cách tự kiểm tra lại      |
 
 ---
 
@@ -124,7 +127,8 @@ VPN is ON for the whole Mac. Exit IP: xxx.xxx.xxx.xxx
 - Mỗi lần bật mất khoảng **10–15 giây** (container kết nối lại IPsec + L2TP từ đầu).
 - `vpn-on` hỏi **mật khẩu macOS** vì phải đổi route, DNS và IPv6 của hệ thống.
 - `vpn-on` chỉ báo thành công khi đã kiểm tra IP ra Internet của máy **đúng bằng IP của VPN**. Nếu VPN không lên, nó **không** chuyển máy vào tunnel, nên máy không bị mất mạng.
-- Mạng LAN tại chỗ (router, máy in, máy in mạng nội bộ) vẫn đi thẳng, không qua VPN.
+- Mạng LAN tại chỗ (router, máy in) vẫn đi thẳng, không qua VPN.
+- Khi bật toàn máy, **mọi** traffic (kể cả việc riêng) đi qua hạ tầng của khách hàng. Cần dùng lâu thì cân nhắc `vpn-on --browser` — xem [SECURITY.md](SECURITY.md).
 - IPv6 tạm tắt trong lúc bật (VPN chỉ mang IPv4) để không có traffic đi vòng qua mạng thật; `vpn-off` bật lại.
 
 > [!IMPORTANT]

@@ -117,6 +117,9 @@ ip route add default dev ppp0
 echo "nameserver 1.1.1.1" > /etc/resolv.conf
 echo "nameserver 8.8.8.8" >> /etc/resolv.conf
 
+ETH0_IP=$(ip -4 -o addr show eth0 | awk '{ sub(/\/.*/, "", $4); print $4 }')
+[ -n "$ETH0_IP" ] || fail "cannot read the container's eth0 address"
+
 # 6. Port forwards for apps without SOCKS support (DB clients, ssh, ...):
 # PORT_FORWARDS="41000:db.example.com:3306,41001:10.0.0.5:22" makes
 # 127.0.0.1:41000 on the host reach db.example.com:3306 through the VPN.
@@ -128,7 +131,7 @@ if [ -n "${PORT_FORWARDS}" ]; then
             fail "invalid PORT_FORWARDS entry '$fwd' (expected local_port:host:remote_port)"
         fi
         echo "Forwarding 127.0.0.1:${lport} -> ${rhost}:${rport}"
-        socat "TCP-LISTEN:${lport},fork,reuseaddr" "TCP:${rhost}:${rport}" &
+        socat "TCP-LISTEN:${lport},bind=${ETH0_IP},fork,reuseaddr" "TCP:${rhost}:${rport}" &
     done
 fi
 
@@ -149,11 +152,24 @@ wg set wg0 listen-port "$WG_PORT" private-key "$WG_DIR/server.key" \
     peer "$(wg pubkey < "$WG_DIR/client.key")" allowed-ips "$WG_CLIENT_ADDR"
 ip addr add "$WG_SERVER_ADDR" dev wg0
 ip link set wg0 up
-sysctl -qw net.ipv4.ip_forward=1
+# Set by the sysctls: list in docker-compose.yml; /proc/sys is read-only here
+# because the container is unprivileged, so only check it
+[ "$(cat /proc/sys/net/ipv4/ip_forward)" = 1 ] || sysctl -qw net.ipv4.ip_forward=1 ||
+    fail "net.ipv4.ip_forward is off: add it to the sysctls: list in docker-compose.yml"
 iptables -t nat -C POSTROUTING -o ppp0 -j MASQUERADE 2>/dev/null ||
     iptables -t nat -A POSTROUTING -o ppp0 -j MASQUERADE
 iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null ||
     iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+
+# Hosts inside the customer's VPN must not reach this container's services
+# (SOCKS proxy, WireGuard, port forwards) or be routed through it: only
+# answers to what we asked for come back in over ppp0.
+for chain in INPUT FORWARD; do
+    iptables -C "$chain" -i ppp0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null ||
+        iptables -A "$chain" -i ppp0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -C "$chain" -i ppp0 -j DROP 2>/dev/null ||
+        iptables -A "$chain" -i ppp0 -j DROP
+done
 
 # vpn-on routes this IP outside the tunnel, otherwise the Mac would send the
 # VPN's own IPsec packets (Docker -> server) into the tunnel they carry
@@ -186,7 +202,7 @@ echo "WireGuard bridge ready on udp/${WG_PORT}"
 # 8. Khởi chạy Microsocks Proxy
 echo "Khởi chạy Microsocks Proxy tại cổng 1080..."
 # Run in the background (not exec) so this shell stays PID 1 and can trap SIGTERM
-microsocks -i 0.0.0.0 -p 1080 &
+microsocks -i "$ETH0_IP" -p 1080 &
 PROXY_PID=$!
 wait "$PROXY_PID" || true
 teardown
