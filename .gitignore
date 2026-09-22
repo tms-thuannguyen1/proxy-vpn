@@ -1,2 +1,5 @@
 # VPN credentials
 .env
+
+# WireGuard keys and generated client config
+data/

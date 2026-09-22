@@ -6,4 +6,11 @@ services:
     env_file: .env
     ports:
       - "127.0.0.1:1080:1080"
+      # WireGuard bridge used by vpn-on to route the whole Mac through the VPN
+      - "127.0.0.1:51820:51820/udp"
+      # Local ports for PORT_FORWARDS (see .env.example)
+      - "127.0.0.1:${FORWARD_PORTS:-41000-41009}:${FORWARD_PORTS:-41000-41009}"
+    volumes:
+      # WireGuard keys and the generated Mac client config (git-ignored)
+      - ./data:/data
     restart: unless-stopped

@@ -1,9 +1,14 @@
-# L2TP/IPsec VPN Client & SOCKS5 Proxy (Docker)
+# L2TP/IPsec VPN Client for macOS (Docker)
 
-Giải pháp kết nối VPN L2TP/IPsec ổn định trên macOS thông qua Docker container. Toàn bộ lưu lượng VPN được đóng gói thành cổng **SOCKS5 Proxy (`127.0.0.1:1080`)** trên máy của bạn, giải quyết triệt để vấn đề kẹt mạng hoặc không tương thích thuật toán mã hóa (3DES/SHA1) của macOS.
+Giải pháp kết nối VPN L2TP/IPsec ổn định trên macOS thông qua Docker container, giải quyết triệt để vấn đề kẹt mạng hoặc không tương thích thuật toán mã hóa (3DES/SHA1) của macOS. Có 2 chế độ:
+
+- **Toàn bộ máy Mac** (`vpn-on`): mọi ứng dụng — trình duyệt, DB client, SSH, Terminal, Slack... — đều đi qua VPN, giống như VPN có sẵn của macOS.
+- **Chỉ ứng dụng chọn lọc** (`vpn-on --browser`): chỉ trình duyệt/ứng dụng được cấu hình dùng **SOCKS5 Proxy `127.0.0.1:1080`** mới đi qua VPN; phần còn lại dùng mạng bình thường.
 
 ```
-Trình duyệt / macOS ──SOCKS5──▶ 127.0.0.1:1080 ──▶ [Docker: microsocks → ppp0 (L2TP) → IPsec] ──▶ VPN Server
+Toàn bộ máy Mac ──WireGuard──▶ 127.0.0.1:51820/udp ─┐
+                                                   ├─▶ [Docker: ppp0 (L2TP) → IPsec] ──▶ VPN Server
+Trình duyệt / app ──SOCKS5──▶ 127.0.0.1:1080 ───────┘
 ```
 
 ## Mục lục
@@ -11,7 +16,7 @@ Trình duyệt / macOS ──SOCKS5──▶ 127.0.0.1:1080 ──▶ [Docker: m
 1. [Yêu cầu chuẩn bị](#1-yêu-cầu-chuẩn-bị)
 2. [Cấu hình thông tin tài khoản](#2-cấu-hình-thông-tin-tài-khoản)
 3. [Khởi chạy lần đầu](#3-khởi-chạy-lần-đầu)
-4. [Cách sử dụng mạng qua Proxy](#4-cách-sử-dụng-mạng-qua-proxy)
+4. [Cách sử dụng](#4-cách-sử-dụng)
 5. [Bật / Tắt hàng ngày](#5-bật--tắt-hàng-ngày)
 6. [Phím tắt Terminal (zsh)](#6-phím-tắt-terminal-zsh)
 7. [Xử lý sự cố thường gặp](#7-xử-lý-sự-cố-thường-gặp)
@@ -20,11 +25,13 @@ Trình duyệt / macOS ──SOCKS5──▶ 127.0.0.1:1080 ──▶ [Docker: m
 
 | File                 | Vai trò                                                              |
 | -------------------- | -------------------------------------------------------------------- |
-| `Dockerfile`         | Image Alpine: strongSwan (IPsec), xl2tpd, ppp, microsocks            |
-| `entrypoint.sh`      | Sinh cấu hình IPsec/L2TP từ biến môi trường, dựng tunnel, chạy proxy |
-| `docker-compose.yml` | Khai báo service, cổng proxy; nạp tài khoản từ `.env`                |
-| `.env.example`       | Mẫu tài khoản VPN — copy thành `.env` (`.env` bị git bỏ qua)         |
-| `vpn.zsh`            | Phím tắt Terminal: `vpn-on`, `vpn-off`, `vpn-status`, `vpn-logs`     |
+| `Dockerfile`         | Image Alpine: strongSwan (IPsec), xl2tpd, ppp, WireGuard, microsocks |
+| `entrypoint.sh`      | Sinh cấu hình IPsec/L2TP từ biến môi trường, dựng tunnel, chạy proxy và cầu nối WireGuard |
+| `docker-compose.yml` | Khai báo service, cổng proxy/WireGuard; nạp tài khoản từ `.env`      |
+| `.env.example`       | Mẫu tài khoản VPN + port forward — copy thành `.env` (git bỏ qua `.env`) |
+| `vpn.zsh`            | Phím tắt Terminal: `vpn-on`, `vpn-off`, `vpn-status`, `vpn-logs`, `vpn-exec` |
+| `data/`              | Sinh tự động: khóa WireGuard + cấu hình cho Mac (git bỏ qua)         |
+| `TESTING.md`         | Kịch bản test lại toàn bộ từ đầu, có kết quả mong đợi từng bước      |
 
 ---
 
@@ -32,6 +39,13 @@ Trình duyệt / macOS ──SOCKS5──▶ 127.0.0.1:1080 ──▶ [Docker: m
 
 - Máy đã cài đặt và đang bật **Docker Desktop**.
 - Đã clone hoặc tải thư mục mã nguồn này về máy (khuyến nghị đặt tại `~/l2tp-proxy`).
+- Chế độ **toàn bộ máy Mac** cần thêm WireGuard (một lần):
+
+  ```bash
+  brew install wireguard-tools
+  ```
+
+  Trên Mac chip Intel đời cũ, Homebrew có thể phải tự biên dịch — mất 15–30 phút.
 
 ## 2. Cấu hình thông tin tài khoản
 
@@ -71,13 +85,27 @@ curl --socks5-hostname 127.0.0.1:1080 https://ipinfo.io/ip
 
 Nếu Terminal in ra **địa chỉ IP của server khách hàng**, kết nối đã sẵn sàng sử dụng.
 
-## 4. Cách sử dụng mạng qua Proxy
+## 4. Cách sử dụng
 
-Chọn **1 trong 2 cách** bên dưới tùy theo nhu cầu.
+Chọn cách phù hợp với nhu cầu.
 
-### Cách 1: Chỉ dùng cho Trình duyệt
+### Cách 1: Toàn bộ máy Mac (Khuyên dùng khi cần truy cập mọi thứ)
 
-Không ảnh hưởng đến mạng chung của máy (Zoom, Meet, YouTube, Slack vẫn dùng mạng cá nhân bình thường).
+Mọi traffic của máy (web, DB, SSH, API, Slack, Zoom...) đi qua VPN — ứng dụng **không cần cấu hình gì**. Mạng LAN tại chỗ (router, máy in) vẫn dùng bình thường.
+
+1. Cài phím tắt theo [mục 6](#6-phím-tắt-terminal-zsh) và `wireguard-tools` theo [mục 1](#1-yêu-cầu-chuẩn-bị).
+2. Bật: `vpn-on` (nhập mật khẩu macOS khi được hỏi). Lệnh chỉ báo thành công khi đã kiểm tra IP ra Internet của máy **đúng bằng IP của VPN**.
+3. Tắt: `vpn-off`.
+
+Cách hoạt động: container dựng thêm một WireGuard server; `vpn-on` dùng `wg-quick` tạo card mạng ảo trên Mac, chuyển toàn bộ route + DNS vào đó; container NAT traffic ra `ppp0` của VPN.
+
+> [!NOTE]
+> - Trong lúc bật, IPv6 của mạng đang dùng tạm tắt (VPN chỉ mang IPv4) để không có traffic đi vòng qua mạng thật; `vpn-off` bật lại.
+> - Nếu đổi mạng (Wi-Fi ↔ Ethernet, sang quán cafe...) trong lúc đang bật: chạy `vpn-off` rồi `vpn-on` lại.
+
+### Cách 2: Chỉ dùng cho Trình duyệt
+
+Không ảnh hưởng đến mạng chung của máy (Zoom, Meet, YouTube, Slack vẫn dùng mạng cá nhân bình thường). Bật container bằng `vpn-on --browser` (hoặc `docker compose up -d`).
 
 1. Cài extension **ZeroOmega** (hoặc **Proxy SwitchyOmega**) trên Chrome / Brave / Edge.
 2. Mở cài đặt extension, thêm profile mới:
@@ -94,36 +122,74 @@ Không ảnh hưởng đến mạng chung của máy (Zoom, Meet, YouTube, Slack
 - **Khi làm việc:** Bấm vào biểu tượng tiện ích trên thanh công cụ và chọn **Client VPN**.
 - **Khi nghỉ:** Chọn **[Direct]** để quay về mạng thông thường.
 
-### Cách 2: Đổi IP cho toàn bộ máy Mac
+### Cách 3: Chỉ một số ứng dụng / lệnh Terminal
 
-1. Vào **System Settings → Network →** chọn mạng đang dùng (Wi-Fi hoặc Ethernet) **→ Details...**
-2. Chọn thẻ **Proxies** ở danh sách bên trái.
-3. Bật mục **SOCKS proxy**:
-   - Server: `127.0.0.1`
-   - Port: `1080`
-4. Bấm **OK → Apply**.
+Dùng khi muốn **một vài** công cụ đi qua VPN mà không bật toàn máy (Cách 1). Bật container bằng `vpn-on --browser`.
 
-> [!TIP]
-> Có thể tự động hóa toàn bộ bước này bằng lệnh `vpn-on` / `vpn-off` — xem [mục 6](#6-phím-tắt-terminal-zsh).
+**a) Database client / ứng dụng bất kỳ — Port forwarding**
+
+Container mở sẵn cổng trên máy bạn, chuyển thẳng tới service qua VPN. Ứng dụng **không cần hỗ trợ proxy**, chỉ cần kết nối tới `127.0.0.1:<cổng>`.
+
+1. Thêm vào `.env` (nhiều service ngăn cách bằng dấu phẩy, định dạng `cổng_local:host:cổng_đích`):
+
+   ```bash
+   PORT_FORWARDS=41000:mydb.xxxx.ap-northeast-1.rds.amazonaws.com:3306,41001:10.0.0.5:22
+   ```
+
+   Cổng local phải nằm trong dải `41000-41009`. Cần dải khác thì đặt thêm `FORWARD_PORTS=42000-42019` trong `.env`.
+
+2. Áp dụng: `docker compose up -d`. Log sẽ in `Forwarding 127.0.0.1:41000 -> ...`.
+3. Trong DB client (TablePlus, DBeaver, DataGrip...): **Host** `127.0.0.1`, **Port** `41000`, user/password của DB như bình thường.
+
+> [!NOTE]
+> Nếu DB bật kiểm tra chứng chỉ SSL theo hostname (`verify-full` / `VERIFY_IDENTITY`), đổi sang chế độ `require` vì kết nối tới `127.0.0.1` sẽ không khớp tên trong chứng chỉ.
+
+**b) Lệnh CLI hỗ trợ biến môi trường proxy (curl, git, wget...)** — thêm `vpn-exec` phía trước lệnh:
+
+```bash
+vpn-exec curl https://ipinfo.io/ip
+vpn-exec git clone https://git.example.com/team/repo.git
+```
+
+**c) SSH** — đi qua SOCKS proxy bằng `ProxyCommand`:
+
+```bash
+ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:1080 %h %p' user@server
+```
+
+Hoặc cố định trong `~/.ssh/config` (áp dụng cho cả SSH tunnel của DB client):
+
+```
+Host my-bastion
+  HostName bastion.example.com
+  User ec2-user
+  ProxyCommand nc -X 5 -x 127.0.0.1:1080 %h %p
+```
+
+> [!WARNING]
+> Không nên dùng mục **SOCKS proxy** trong System Settings → Network → Proxies: chỉ trình duyệt tôn trọng cài đặt này, còn DB client, `ssh`, Terminal... vẫn đi bằng IP thật. Cần toàn máy thì dùng **Cách 1**.
 
 ## 5. Bật / Tắt hàng ngày
 
-**Khi không làm việc (Tắt VPN):**
+Dùng phím tắt ở [mục 6](#6-phím-tắt-terminal-zsh):
 
-```bash
-docker compose stop
-```
+| Việc                               | Lệnh               |
+| ---------------------------------- | ------------------ |
+| Bật VPN cho toàn bộ máy (Cách 1)   | `vpn-on`           |
+| Bật VPN cho trình duyệt/app (Cách 2, 3) | `vpn-on --browser` |
+| Tắt VPN                            | `vpn-off`          |
+
+Mỗi lần bật mất khoảng **10–15 giây** (container kết nối lại IPsec + L2TP từ đầu).
 
 > [!IMPORTANT]
-> Nếu dùng **Cách 2**, nhớ gạt tắt SOCKS proxy trong cài đặt macOS để tránh bị rớt mạng.
+> Luôn tắt bằng `vpn-off` khi đang dùng Cách 1. Nếu dừng container bằng `docker compose stop` hoặc Quit Docker Desktop trong lúc tunnel còn bật, máy sẽ **mất mạng** cho tới khi chạy `vpn-off`.
 
-**Khi cần làm việc (Bật lại VPN):**
+Không dùng phím tắt thì bật/tắt container trực tiếp (chỉ cho Cách 2, 3):
 
 ```bash
-docker compose start
+docker compose start   # bật
+docker compose stop    # tắt
 ```
-
-Chờ khoảng **10–15 giây** là proxy `1080` sẽ hoạt động trở lại (container kết nối lại IPsec + L2TP từ đầu).
 
 ## 6. Phím tắt Terminal (zsh)
 
@@ -147,18 +213,20 @@ source ~/.zshrc
 
 | Lệnh               | Chức năng                                                                                   |
 | ------------------ | ------------------------------------------------------------------------------------------- |
-| `vpn-on`           | Bật container, **chờ đến khi proxy thực sự thông**, rồi bật SOCKS proxy cho macOS (Cách 2)  |
-| `vpn-on --browser` | Chỉ bật container, không đụng cài đặt mạng macOS (dùng với extension — Cách 1)              |
-| `vpn-off`          | Tắt SOCKS proxy macOS trên **mọi** network service, rồi dừng container                      |
-| `vpn-status`       | Xem trạng thái container, IP đầu ra qua proxy, và service nào đang bật SOCKS proxy          |
+| `vpn-on`           | Bật container, **chờ đến khi VPN thực sự thông**, rồi chuyển toàn bộ máy qua VPN (Cách 1)   |
+| `vpn-on --browser` | Chỉ bật container, không đụng cài đặt mạng macOS (Cách 2, 3)                                |
+| `vpn-off`          | Gỡ tunnel toàn máy (khôi phục route, DNS, IPv6), rồi dừng container                         |
+| `vpn-status`       | Xem trạng thái container, tunnel toàn máy, IP ra của VPN và của máy                         |
 | `vpn-logs`         | Xem log container theo thời gian thực                                                       |
+| `vpn-exec <lệnh>`  | Chạy lệnh CLI qua VPN (curl, git, wget...) — xem [Cách 3](#cách-3-chỉ-một-số-ứng-dụng--lệnh-terminal)   |
 
 ### Điểm cải tiến so với script đơn giản
 
 - **Không `cd`**: gọi `docker compose -f <dir>/docker-compose.yml`, Terminal vẫn giữ nguyên thư mục hiện tại.
 - **Tự dò network service đang dùng** (Wi-Fi / Ethernet / USB LAN...) theo default route, không hardcode `Wi-Fi`.
-- **Chờ proxy sẵn sàng thật** (thử `curl` qua proxy mỗi giây, tối đa 30 giây) thay vì `sleep 3` cố định. Nếu VPN không lên, **không** bật proxy macOS → tránh mất mạng toàn máy.
-- **`vpn-off` tắt proxy trên mọi service** đang bật, phòng trường hợp bạn đổi Wi-Fi ↔ Ethernet trong lúc VPN chạy.
+- **Chờ VPN sẵn sàng thật** (thử `curl` qua proxy mỗi giây, tối đa 30 giây) thay vì `sleep 3` cố định. Nếu VPN không lên, **không** chuyển máy vào tunnel → tránh mất mạng toàn máy.
+- **Kiểm tra kết quả**: `vpn-on` chỉ báo thành công khi IP ra Internet của máy đúng bằng IP của VPN.
+- **`vpn-off` hoàn tác đúng những gì `vpn-on` đã đổi** (route, DNS, IPv6), và tắt luôn SOCKS proxy thủ công nếu còn bật.
 - **`up -d` thay cho `start`**: chạy được cả khi container chưa từng được tạo hoặc đã bị xóa.
 - Kiểm tra Docker Desktop đã chạy chưa trước khi thao tác.
 
@@ -175,7 +243,7 @@ source ~/l2tp-proxy/vpn.zsh
 ```
 
 > [!NOTE]
-> Lệnh `networksetup` có thể hiện hộp thoại yêu cầu mật khẩu macOS ở lần đầu thay đổi cài đặt mạng.
+> `vpn-on` / `vpn-off` (Cách 1) hỏi mật khẩu macOS (`sudo`) vì thay đổi route, DNS và IPv6 của hệ thống.
 
 ## 7. Xử lý sự cố thường gặp
 
@@ -209,15 +277,19 @@ Proxy chưa sẵn sàng (VPN chưa kết nối xong hoặc đang lỗi). Xem log
 docker compose up -d --force-recreate
 ```
 
-**Tắt Docker xong bị mất mạng:**
+**Đổi được IP nhưng ứng dụng (DB client, Terminal...) vẫn không vào được service:**
 
-Do mục SOCKS Proxy trên macOS vẫn đang bật. Vào **System Settings → Network → Proxies** để tắt, hoặc chạy nhanh lệnh:
+Ứng dụng đó không đi qua SOCKS proxy nên vẫn dùng IP thật. Dùng **Cách 1** (toàn bộ máy), hoặc port forwarding / `vpn-exec` theo [Cách 3](#cách-3-chỉ-một-số-ứng-dụng--lệnh-terminal).
+
+**Máy mất mạng hoàn toàn:**
+
+Tunnel toàn máy vẫn bật trong khi container đã dừng (Quit Docker Desktop, `docker compose stop`...), hoặc SOCKS proxy thủ công còn bật. Chạy:
 
 ```bash
-networksetup -setsocksfirewallproxystate Wi-Fi off
-# hoặc (tắt trên mọi network service)
 vpn-off
 ```
+
+Nếu chưa cài phím tắt: `sudo wg-quick down ~/l2tp-proxy/data/wireguard/wg-l2tp.conf` và `networksetup -setsocksfirewallproxystate Wi-Fi off`.
 
 **Bật lại mất 1–2 phút mới vào được mạng (log có `You are already logged in - access denied`):**
 

@@ -7,6 +7,9 @@ RUN apk add --no-cache \
     bash \
     curl \
     iproute2 \
+    socat \
+    wireguard-tools \
+    iptables \
     build-base \
     git
 
