@@ -6,8 +6,12 @@ services:
     # WireGuard interfaces and routes, /dev/ppp for the L2TP link
     cap_add:
       - NET_ADMIN
-    devices:
-      - /dev/ppp
+      # MKNOD + the cgroup rule let entrypoint.sh create /dev/ppp itself.
+      # Mapping the host's /dev/ppp instead would fail to start on a machine
+      # where the node does not exist yet (fresh Docker Desktop install).
+      - MKNOD
+    device_cgroup_rules:
+      - "c 108:* rwm"
     sysctls:
       - net.ipv4.ip_forward=1
     security_opt:
@@ -23,3 +27,6 @@ services:
       # WireGuard keys and the generated Mac client config (git-ignored)
       - ./data:/data
     restart: unless-stopped
+    # Disconnecting the VPN session cleanly takes a few seconds; without this
+    # Docker would SIGKILL the container at 10s and leave a stale session
+    stop_grace_period: 30s

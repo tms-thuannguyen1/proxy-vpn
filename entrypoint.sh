@@ -29,6 +29,12 @@ fail() {
 rm -f /var/run/xl2tpd.pid /var/run/charon.pid /var/run/starter.charon.pid \
       /var/run/ppp*.pid /var/run/xl2tpd/l2tp-control
 
+# pppd needs /dev/ppp. Docker Desktop's VM does not always have the node, and
+# mapping it from the host fails to start the container when it is missing,
+# so create it here (char major 108, granted by MKNOD + device_cgroup_rules).
+[ -c /dev/ppp ] || mknod /dev/ppp c 108 0 ||
+    fail "cannot create /dev/ppp: check cap_add MKNOD and device_cgroup_rules in docker-compose.yml"
+
 # 1. Cấu hình IPsec
 cat <<EOF > /etc/ipsec.conf
 config setup
@@ -75,6 +81,10 @@ require-mschap-v2
 noccp
 noauth
 idle 0
+# Keep the link busy (servers drop idle sessions) and let pppd notice a dead
+# peer instead of sitting on a link the server has already torn down
+lcp-echo-interval 20
+lcp-echo-failure 4
 # Send pppd messages (e.g. authentication failures) to the container log
 logfd 2
 name "${VPN_USER}"
@@ -204,5 +214,27 @@ echo "Khởi chạy Microsocks Proxy tại cổng 1080..."
 # Run in the background (not exec) so this shell stays PID 1 and can trap SIGTERM
 microsocks -i "$ETH0_IP" -p 1080 &
 PROXY_PID=$!
-wait "$PROXY_PID" || true
+
+# 9. Watchdog. The L2TP session can die while this container still looks
+# healthy: the server drops the link when idle, then xl2tpd and the server
+# disagree about the tunnel ("Can not find tunnel"), and ppp0 stays up
+# carrying nothing. Exit on a dead link so the restart policy reconnects
+# from scratch instead of leaving a container that answers but routes
+# nowhere.
+PEER_IP=$(ip -4 -o addr show ppp0 | awk '{ sub(/\/.*/, "", $6); print $6 }')
+failures=0
+while kill -0 "$PROXY_PID" 2>/dev/null; do
+    # `sleep` in the background + `wait`: a foreground sleep would delay the
+    # SIGTERM trap (and its clean disconnect) until the sleep finished
+    sleep 30 &
+    wait $! || true
+    if ip addr show ppp0 2>/dev/null | grep -q "inet" &&
+        ping -c 1 -W 5 "$PEER_IP" >/dev/null 2>&1; then
+        failures=0
+        continue
+    fi
+    failures=$((failures + 1))
+    echo "VPN health check failed (${failures}/3)" >&2
+    [ "$failures" -ge 3 ] && fail "VPN link is dead: ppp0 cannot reach ${PEER_IP}"
+done
 teardown

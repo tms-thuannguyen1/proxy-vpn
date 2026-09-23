@@ -291,6 +291,15 @@ networksetup -listallnetworkservices
 export VPN_NET_SERVICE="Wi-Fi"
 ```
 
+**`error gathering device information while adding custom device "/dev/ppp"`:**
+
+Bản cũ ánh xạ `/dev/ppp` từ máy vào container, nên máy chưa có sẵn thiết bị này thì container không khởi động được. Bản mới tự tạo. Cập nhật rồi build lại:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
 **`wg-quick not found`:**
 
 Chưa cài WireGuard: `brew install wireguard-tools` ([mục 1](#1-yêu-cầu-chuẩn-bị)).
